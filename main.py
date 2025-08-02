@@ -1,9 +1,7 @@
-# app/main.py
-import os, tempfile, requests
+import os, tempfile, requests, asyncio
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from app.utils import detect_domain_from_query
 from app.rag_engine import process_query
 from typing import Optional
 
@@ -20,21 +18,17 @@ def verify_token(authorization: str = Header(...)):
 class QueryRequest(BaseModel):
     documents: str
     questions: list[str]
-    domain: Optional[str] = None
 
 @app.post("/hackrx/run")
 async def run_rag(payload: QueryRequest, auth=Depends(verify_token)):
-    # download PDF
+    # Download PDF
     resp = requests.get(payload.documents)
     resp.raise_for_status()
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     tmp.write(resp.content); tmp.close()
-    domain = payload.domain
-    if domain is None:
-        # pick the first question to classify
-        domain = detect_domain_from_query(payload.questions[0])
+
     try:
-        answers = process_query(tmp.name, payload.questions, payload.domain)
+        answers = await process_query(tmp.name, payload.questions)
         return JSONResponse({"answers": answers})
     finally:
         os.remove(tmp.name)
