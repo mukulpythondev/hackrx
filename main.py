@@ -56,13 +56,8 @@ async def run_rag(payload: QueryRequest, auth=Depends(verify_token)):
         # Log request info
         print(f"📋 Processing {len(payload.questions)} questions for document")
         
-        # Set timeout for the entire operation
-        try:
-            answers = await asyncio.wait_for(
-                process_query(payload.documents, payload.questions), timeout=50
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(408, "Request timeout - processing took too long")
+        # Directly await without timeout
+        answers = await process_query(payload.documents, payload.questions)
         
         processing_time = time.time() - start_time
         print(f"⏱️ Total processing time: {processing_time:.2f}s")
