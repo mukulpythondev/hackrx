@@ -2,7 +2,7 @@ import os
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
 from pydantic import BaseModel
-from app.rag_engine import process_query
+from app.rag_engine import process_query_enhanced
 import aiohttp
 import time
 
@@ -57,7 +57,7 @@ async def run_rag(payload: QueryRequest, auth=Depends(verify_token)):
         print(f"📋 Processing {len(payload.questions)} questions for document")
         
         # Directly await without timeout
-        answers = await process_query(payload.documents, payload.questions)
+        answers = await process_query_enhanced(payload.documents, payload.questions)
         
         processing_time = time.time() - start_time
         print(f"⏱️ Total processing time: {processing_time:.2f}s")
