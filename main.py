@@ -2,10 +2,9 @@ import os
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
 from pydantic import BaseModel
-from app.rag_engine import process_query_enhanced
 import aiohttp
 import time
-
+from app.rag_vector import OptimizedVectorRAG  # Updated import
 app = FastAPI(
     title="HackRx 6.0 RAG API", 
     version="1.0.0",
@@ -15,8 +14,18 @@ app = FastAPI(
 # Environment variables
 API_TOKEN = os.environ["HACKRX_API_TOKEN"]
 
-# Global warmup state
+# Global warmup state and RAG instance
 SYSTEM_WARMED = False
+rag_system = None
+
+async def initialize_rag():
+    """Initialize RAG system once"""
+    global rag_system
+    if rag_system is None:
+        print("🚀 Initializing RAG system...")
+        rag_system = OptimizedVectorRAG()
+        print("✅ RAG system initialized successfully")
+    return rag_system
 
 def verify_token(authorization: str = Header(...)):
     """Verify Bearer token authentication"""
@@ -36,6 +45,50 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answers: list[str]
 
+async def process_query_enhanced(document_url: str, questions: list[str]) -> list[str]:
+    """
+    Enhanced query processing using OptimizedVectorRAG
+    """
+    try:
+        # Get RAG system instance
+        rag = await initialize_rag()
+        
+        # Generate document ID from URL
+        doc_id = rag.generate_doc_id(document_url)
+        print(f"📄 Document ID: {doc_id}")
+        
+        # Check if document exists, if not process it
+        doc_exists = await rag.check_document_exists(doc_id)
+        if not doc_exists:
+            print(f"📥 Processing new document: {document_url}")
+            processed_doc_id = await rag.process_document(document_url, doc_id)
+            print(f"✅ Document processed: {processed_doc_id}")
+        else:
+            print(f"📋 Using cached document: {doc_id}")
+        
+        # Process all questions
+        answers = []
+        for i, question in enumerate(questions, 1):
+            print(f"❓ Processing question {i}/{len(questions)}: {question[:50]}...")
+            
+            try:
+                answer = await rag.query(question, doc_id)
+                answers.append(answer)
+                print(f"✅ Answer {i} generated successfully")
+                
+            except Exception as e:
+                print(f"❌ Error processing question {i}: {e}")
+                # Provide fallback answer instead of failing completely
+                answers.append(f"Sorry, I couldn't process this question: {str(e)}")
+        
+        print(f"🎯 Successfully processed {len(answers)} questions")
+        return answers
+        
+    except Exception as e:
+        print(f"❌ Enhanced processing error: {e}")
+        # Return error messages for all questions instead of raising
+        error_msg = f"Error processing document: {str(e)}"
+        return [error_msg for _ in questions]
 
 @app.post("/hackrx/run", response_model=QueryResponse)
 async def run_rag(payload: QueryRequest, auth=Depends(verify_token)):
@@ -73,8 +126,35 @@ async def run_rag(payload: QueryRequest, auth=Depends(verify_token)):
         print(f"❌ Processing error after {processing_time:.2f}s: {e}")
         raise HTTPException(500, f"Internal processing error: {str(e)}")
 
+# Optional: Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        rag = await initialize_rag()
+        return {
+            "status": "healthy",
+            "rag_system": "initialized",
+            "service": "HackRx 6.0 RAG API"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "service": "HackRx 6.0 RAG API"
+        }
 
-
+# Optional: Warmup endpoint
+@app.post("/warmup")
+async def warmup_system(background_tasks: BackgroundTasks):
+    """Warmup the RAG system"""
+    global SYSTEM_WARMED
+    try:
+        await initialize_rag()
+        SYSTEM_WARMED = True
+        return {"status": "warmed", "message": "RAG system initialized"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # Add middleware for request timing
 @app.middleware("http")
